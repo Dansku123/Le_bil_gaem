@@ -1,18 +1,14 @@
 using UnityEngine;
 
-public class Finish : MonoBehaviour
+public class Maaliviiva : MonoBehaviour
 {
-    private void OnTriggerEnter(Collider other)
+    private void OnTriggerEnter(Collider auto)
     {
-        if (other == null) return;
-
-        // match CheckPoint behavior: ignore non-car colliders (assumes tag "Car")
-        if (!other.CompareTag("Car")) return;
-
-        var id = other.GetComponentInParent<CarIdentity>();
-        if (id == null) return;
-
-        Debug.Log($"{id.car_name} Won the race!");
-        // if CheckPoint calls a method on CarIdentity, call it here (e.g. id.OnFinish();)
+        var id = auto.GetComponent<CarIdentity>();
+        var tarkastaja = auto.GetComponent<CheckpointTarkistus>();
+        if (!tarkastaja.CanWin())
+        {
+            Debug.Log("Winner is " + id.car_name);
+        }
     }
 }

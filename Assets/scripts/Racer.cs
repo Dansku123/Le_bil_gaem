@@ -1,18 +1,26 @@
 using System;
 using UnityEngine;
 
-using System;
-using UnityEngine;
-
 public class Racer : MonoBehaviour
 {
     // Public fields kept for backward compatibility and inspector tuning
-    public float speed = 10f;
+    public float speed = 20f; // changed default max speed to 20
     public float turnSpeed = 100f;
+
+    // Gears
+    public int gearCount = 5;
+    [Tooltip("Normalized top-speed ratio per gear (0..1). If empty or length mismatch, initialized evenly.")]
+    public float[] gearRatios;
+    [Range(1, 10)]
+    public int currentGear = 1;
+    public KeyCode shiftUpKey = KeyCode.E;
+    public KeyCode shiftDownKey = KeyCode.Q;
+    public event Action<int> OnGearChanged;
 
     // Acceleration / deceleration
     public float acceleration = 10f;    // units per second² while speeding up
-    public float deceleration = 15f;    // units per second² while slowing down
+    public float deceleration = 15f;    // units per second² while slowing down (coasting)
+    public float brakeDeceleration = 30f; // units per second² when actively braking (opposite input)
 
     // Minimum turning responsiveness at zero speed (0..1)
     // 0.25 means turning at 25% of turnSpeed when stopped
@@ -24,6 +32,9 @@ public class Racer : MonoBehaviour
     public float boostDuration = 3f;
     public float boostMultiplier = 2f;
     public float boostCooldown = 20f;
+
+    // Boost affecting acceleration as well as top speed
+    public float boostAccelerationMultiplier = 1.5f;
 
     // Internal state
     private float boostRemaining;
@@ -51,11 +62,23 @@ public class Racer : MonoBehaviour
     void Start()
     {
         boostRemaining = boostDuration; // start with full charge
-        Debug.Log("Racer script has started.");
+        EnsureGearRatios();
+        ClampCurrentGear();
+        Debug.Log("Racer script has started. Max speed set to " + speed + ". Current gear: " + currentGear);
     }
 
     void Update()
     {
+        // Gear input (only if not using external input for controls)
+        if (!useExternalInput)
+        {
+            if (Input.GetKeyDown(shiftUpKey))
+                ShiftUp();
+
+            if (Input.GetKeyDown(shiftDownKey))
+                ShiftDown();
+        }
+
         // Handle cooldown timer (counts down when active)
         if (cooldownTimer > 0f)
         {
@@ -133,17 +156,38 @@ public class Racer : MonoBehaviour
         float moveInput = useExternalInput ? externalVertical : Input.GetAxis("Vertical");
         float turnInput = useExternalInput ? externalHorizontal : Input.GetAxis("Horizontal");
 
-        // Determine desired max forward speed (base speed, possibly boosted)
-        float maxForwardSpeed = speed * ((isBoosting && boostRemaining > 0f) ? boostMultiplier : 1f);
+        // Determine desired max forward speed (base speed, modified by gear and possibly boosted)
+        float gearRatio = GetCurrentGearRatio();
+        float maxForwardSpeed = speed * gearRatio * ((isBoosting && boostRemaining > 0f) ? boostMultiplier : 1f);
 
         // Desired target forward speed based on input
         float targetForward = moveInput * maxForwardSpeed;
 
         // Choose acceleration or deceleration depending on whether we're increasing magnitude
-        float accel = (Mathf.Abs(targetForward) > Mathf.Abs(currentForwardSpeed)) ? acceleration : deceleration;
+        float accelRate;
+
+        // If we're trying to increase magnitude (accelerating)
+        if (Mathf.Abs(targetForward) > Mathf.Abs(currentForwardSpeed))
+        {
+            accelRate = acceleration * ((isBoosting && boostRemaining > 0f) ? boostAccelerationMultiplier : 1f);
+        }
+        else
+        {
+            // If input is actively opposite to current movement, use brake deceleration
+            if (!Mathf.Approximately(targetForward, 0f) && !Mathf.Approximately(currentForwardSpeed, 0f)
+                && Mathf.Sign(targetForward) != Mathf.Sign(currentForwardSpeed))
+            {
+                accelRate = brakeDeceleration;
+            }
+            else
+            {
+                // Coasting / letting off the throttle: use normal deceleration (takes time)
+                accelRate = deceleration;
+            }
+        }
 
         // Move currentForwardSpeed toward target using chosen rate
-        currentForwardSpeed = Mathf.MoveTowards(currentForwardSpeed, targetForward, accel * Time.deltaTime);
+        currentForwardSpeed = Mathf.MoveTowards(currentForwardSpeed, targetForward, accelRate * Time.deltaTime);
 
         // Turning scale based on speed: slower turning at slower speeds, lerp between minTurnSpeedFactor and 1
         float absCurrent = Mathf.Abs(currentForwardSpeed);
@@ -199,6 +243,32 @@ public class Racer : MonoBehaviour
         externalHorizontal = horizontal;
     }
 
+    // Gear control API
+    public void ShiftUp()
+    {
+        SetGear(currentGear + 1);
+    }
+
+    public void ShiftDown()
+    {
+        SetGear(currentGear - 1);
+    }
+
+    public void SetGear(int gear)
+    {
+        int prevGear = currentGear;
+        currentGear = Mathf.Clamp(gear, 1, Mathf.Max(1, gearCount));
+        if (currentGear != prevGear)
+        {
+            // clamp the current forward speed to the new gear's max (preserve sign)
+            float newMax = speed * GetCurrentGearRatio();
+            currentForwardSpeed = Mathf.Clamp(currentForwardSpeed, -newMax, newMax);
+
+            Debug.Log($"Gear changed: {currentGear}/{gearCount} (ratio {GetCurrentGearRatio():F2})");
+            OnGearChanged?.Invoke(currentGear);
+        }
+    }
+
     // Query helpers
     public bool IsBoostActive => isBoosting;
     public bool IsCooldownActive => cooldownTimer > 0f;
@@ -210,5 +280,34 @@ public class Racer : MonoBehaviour
     public float GetCurrentSpeed()
     {
         return currentForwardSpeed;
+    }
+
+    private void EnsureGearRatios()
+    {
+        if (gearRatios == null || gearRatios.Length != gearCount)
+        {
+            gearRatios = new float[gearCount];
+            // init evenly distributed ratios from small to 1.0
+            for (int i = 0; i < gearCount; i++)
+            {
+                gearRatios[i] = Mathf.Lerp(0.2f, 1f, (float)i / (gearCount - 1));
+            }
+        }
+        // ensure ratios are clamped 0..1
+        for (int i = 0; i < gearRatios.Length; i++)
+            gearRatios[i] = Mathf.Clamp01(gearRatios[i]);
+    }
+
+    private void ClampCurrentGear()
+    {
+        currentGear = Mathf.Clamp(currentGear, 1, Mathf.Max(1, gearCount));
+    }
+
+    private float GetCurrentGearRatio()
+    {
+        if (gearRatios == null || gearRatios.Length == 0)
+            return 1f;
+        int idx = Mathf.Clamp(currentGear - 1, 0, gearRatios.Length - 1);
+        return gearRatios[idx];
     }
 }
