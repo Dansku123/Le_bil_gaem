@@ -8,8 +8,8 @@ public class Racer : MonoBehaviour
     public float turnSpeed = 100f;
 
     // Gears
-    public int gearCount = 5;
-    [Tooltip("Normalized top-speed ratio per gear (0..1). If empty or length mismatch, initialized evenly.")]
+    public int gearCount = 6; // added sixth gear (overdrive)
+    [Tooltip("Normalized top-speed ratio per gear (0..1). If empty or length mismatch, initialized evenly.\nNote: gear 6 is a special overdrive gear that gives 500% top speed regardless of this array.")]
     public float[] gearRatios;
     [Range(1, 10)]
     public int currentGear = 1;
@@ -58,6 +58,10 @@ public class Racer : MonoBehaviour
     // Events other scripts can subscribe to
     public event Action OnBoostStarted;
     public event Action OnBoostEnded;
+
+    // Special overdrive gear settings
+    private const int OverdriveGearNumber = 6;
+    private const float OverdriveMultiplier = 5f; // 500%
 
     void Start()
     {
@@ -287,13 +291,15 @@ public class Racer : MonoBehaviour
         if (gearRatios == null || gearRatios.Length != gearCount)
         {
             gearRatios = new float[gearCount];
-            // init evenly distributed ratios from small to 1.0
+            // init evenly distributed ratios from small to 1.0 for the normal gears
+            int normalCount = Mathf.Max(1, gearCount);
             for (int i = 0; i < gearCount; i++)
             {
-                gearRatios[i] = Mathf.Lerp(0.2f, 1f, (float)i / (gearCount - 1));
+                // keep the generated ratios within 0..1; the special overdrive gear is handled separately
+                gearRatios[i] = Mathf.Lerp(0.2f, 1f, (float)i / Mathf.Max(1, normalCount - 1));
             }
         }
-        // ensure ratios are clamped 0..1
+        // ensure ratios are clamped 0..1 (overdrive gear does not rely on this array value)
         for (int i = 0; i < gearRatios.Length; i++)
             gearRatios[i] = Mathf.Clamp01(gearRatios[i]);
     }
@@ -305,6 +311,10 @@ public class Racer : MonoBehaviour
 
     private float GetCurrentGearRatio()
     {
+        // Special-case sixth gear: overdrive that multiplies top speed by 5 (500%)
+        if (currentGear == OverdriveGearNumber)
+            return OverdriveMultiplier;
+
         if (gearRatios == null || gearRatios.Length == 0)
             return 1f;
         int idx = Mathf.Clamp(currentGear - 1, 0, gearRatios.Length - 1);

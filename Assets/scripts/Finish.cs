@@ -9,6 +9,7 @@ public class Maaliviiva : MonoBehaviour
         if (!tarkastaja.CanWin())
         {
             Debug.Log("Winner is " + id.car_name);
+            tarkastaja.ResetLap();
         }
     }
 }
