@@ -3,6 +3,7 @@ using UnityEngine;
 
 public class CheckpointTarkistus : MonoBehaviour
 {
+    public int laps = 0;
     public int checkpointCount = 3;
     public bool[] visited;
     private int visitedCount;

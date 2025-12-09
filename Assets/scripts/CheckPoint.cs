@@ -6,8 +6,23 @@ public class Checkpoint : MonoBehaviour
     private void OnTriggerEnter(Collider auto)
     {
         var id = auto.GetComponent<CarIdentity>();
-        Debug.Log(id.car_name + " hit " + orderIndex + " the checkpoint.");
+        if (id != null)
+        {
+            Debug.Log(id.car_name + " hit " + orderIndex + " the checkpoint.");
+        }
+        else
+        {
+            Debug.LogWarning("CarIdentity component not found on collider.");
+        }
+
         var tarkastaja = auto.GetComponent<CheckpointTarkistus>();
-        tarkastaja.MarkVisited(orderIndex);
+        if (tarkastaja != null)
+        {
+            tarkastaja.MarkVisited(orderIndex);
+        }
+        else
+        {
+            Debug.LogWarning("CheckpointTarkistus component not found on collider.");
+        }
     }
 }
